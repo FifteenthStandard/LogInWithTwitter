@@ -10,6 +10,7 @@ public class OAuth2Service
 {
     private const string OAuth2AuthorizeUrl = "https://twitter.com/i/oauth2/authorize";
     private const string OAuth2TokenUrl = "https://api.twitter.com/2/oauth2/token";
+    private const string Apiv2UsersMeUrl = "https://api.twitter.com/2/users/me";
 
     private readonly OAuth2Config _config;
     private readonly IDictionary<string, string> _stateCache;
@@ -93,6 +94,35 @@ public class OAuth2Service
             }
 
             return token;
+        }
+    }
+
+    public async Task<Apiv2UserDetails> GetUserAsync(string bearerToken)
+    {
+        if (bearerToken.StartsWith("Bearer "))
+        {
+            bearerToken = bearerToken.Substring("Bearer ".Length);
+        }
+
+        using (var client = new HttpClient())
+        {
+            client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
+
+            var response = await client.GetAsync($"{Apiv2UsersMeUrl}?user.fields=profile_image_url");
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"{(int) response.StatusCode} {response.ReasonPhrase}");
+            }
+
+            var userResponse = await response.Content.ReadFromJsonAsync<Apiv2UserResponse>();
+
+            if (userResponse == null)
+            {
+                throw new Exception("Invalid user response");
+            }
+
+            return userResponse.Data;
         }
     }
 

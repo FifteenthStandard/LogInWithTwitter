@@ -28,4 +28,12 @@ public class OAuth2Controller : ControllerBase
         var token = await _service.GetAccessTokenAsync(state, code);
         return Ok(token);
     }
+
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe()
+    {
+        var bearerToken = Request.Headers.Authorization.Single() ?? "";
+        var user = await _service.GetUserAsync(bearerToken);
+        return Ok();
+    }
 }

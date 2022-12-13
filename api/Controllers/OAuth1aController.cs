@@ -28,4 +28,13 @@ public class OAuth1aController : ControllerBase
         var token = await _service.GetAccessTokenAsync(oauth_token, oauth_verifier);
         return Ok(token);
     }
+
+    [HttpGet("me")]
+    public async Task<IActionResult> GetMe(
+        [FromQuery] string oauthToken,
+        [FromQuery] string oauthTokenSecret)
+    {
+        var user = await _service.GetUserAsync(oauthToken, oauthTokenSecret);
+        return Ok(user);
+    }
 }

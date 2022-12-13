@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -10,6 +11,7 @@ public class OAuth1aService
     private const string OAuth1aAuthenticateUrl = "https://api.twitter.com/oauth/authenticate";
     private const string OAuth1aRequestTokenUrl = "https://api.twitter.com/oauth/request_token";
     private const string OAuth1aAccessTokenUrl = "https://api.twitter.com/oauth/access_token";
+    private const string Apiv2UsersMeUrl = "https://api.twitter.com/2/users/me";
 
     private readonly OAuth1aConfig _config;
     private readonly IDictionary<string, OAuth1aTokenData> _dataCache;
@@ -35,32 +37,21 @@ public class OAuth1aService
 
         var parameters = new Dictionary<string, string>
         {
-            ["oauth_consumer_key"] = _config.APIKey,
-            ["oauth_nonce"] = tokenData.Nonce,
-            ["oauth_signature_method"] = "HMAC-SHA1",
-            ["oauth_timestamp"] = tokenData.Timestamp,
             ["oauth_token"] = oauthToken,
-            ["oauth_version"] = "1.0",
         };
 
-        var signatureBase64 = Sign(
-            "POST",
-            OAuth1aAccessTokenUrl,
-            parameters);
-
-        parameters["oauth_signature"] = signatureBase64;
-
-        var header = CreateAuthorizationHeader(parameters);
-
-        using (var client = new HttpClient())
-        {
-            client.DefaultRequestHeaders.Authorization = header;
-            var body = new FormUrlEncodedContent(new Dictionary<string, string>
+        var request = CreateRequest(
+            HttpMethod.Post, OAuth1aAccessTokenUrl,
+            parameters, tokenData);
+        request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["oauth_verifier"] = oauthVerifier,
             });
 
-            var response = await client.PostAsync(OAuth1aAccessTokenUrl, body);
+
+        using (var client = new HttpClient())
+        {
+            var response = await client.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -83,13 +74,50 @@ public class OAuth1aService
         }
     }
 
-    private async Task<OAuth1aRequestToken> GetRequestTokenAsync()
+    public async Task<Apiv2UserDetails> GetUserAsync(string oauthToken, string oauthTokenSecret)
     {
-        var tokenData = OAuth1aTokenData.New();
-
         var parameters = new Dictionary<string, string>
         {
-            ["oauth_callback"] = _config.CallbackUri,
+            ["user.fields"] = "profile_image_url",
+        };
+
+        var request = CreateRequest(
+            HttpMethod.Get, $"{Apiv2UsersMeUrl}?user.fields=profile_image_url",
+            parameters,
+            oauthToken: oauthToken, oauthTokenSecret: oauthTokenSecret);
+
+        using (var client = new HttpClient())
+        {
+            var response = await client.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"{(int) response.StatusCode} {response.ReasonPhrase}");
+            }
+
+            var userResponse = await response.Content.ReadFromJsonAsync<Apiv2UserResponse>();
+
+            if (userResponse == null)
+            {
+                throw new Exception("Invalid user response");
+            }
+
+            return userResponse.Data;
+        }
+    }
+
+    public HttpRequestMessage CreateRequest(
+        HttpMethod method,
+        string url,
+        IEnumerable<KeyValuePair<string, string>> parameters,
+        OAuth1aTokenData? tokenData = null,
+        string oauthToken = "",
+        string oauthTokenSecret = "")
+    {
+        tokenData ??= OAuth1aTokenData.New();
+
+        var allParameters = new Dictionary<string, string>
+        {
             ["oauth_consumer_key"] = _config.APIKey,
             ["oauth_nonce"] = tokenData.Nonce,
             ["oauth_signature_method"] = "HMAC-SHA1",
@@ -97,20 +125,83 @@ public class OAuth1aService
             ["oauth_version"] = "1.0",
         };
 
+        if (!string.IsNullOrEmpty(oauthToken))
+        {
+            allParameters.Add("oauth_token", oauthToken);
+        }
+
+        foreach (var parameter in parameters)
+        {
+            allParameters.Add(parameter.Key, parameter.Value);
+        }
+
         var signatureBase64 = Sign(
-            "POST",
-            OAuth1aRequestTokenUrl,
-            parameters);
+            method,
+            url,
+            allParameters,
+            oauthTokenSecret);
 
-        parameters["oauth_signature"] = signatureBase64;
+        allParameters["oauth_signature"] = signatureBase64;
 
-        var header = CreateAuthorizationHeader(parameters);
+        var request = new HttpRequestMessage
+        {
+            Method = method,
+            RequestUri = new Uri(url),
+        };
+        request.Headers.Authorization = CreateAuthorizationHeader(allParameters);
+
+        return request;
+    }
+
+    public string Sign(
+        HttpMethod method, string url,
+        IEnumerable<KeyValuePair<string, string>> parameters,
+        string oauthTokenSecret = "")
+    {
+        var encodedParameters = parameters
+            .Select(parameter => new KeyValuePair<string, string>(
+                WebUtility.UrlEncode(parameter.Key),
+                WebUtility.UrlEncode(parameter.Value)))
+            .OrderBy(parameter => parameter.Key)
+            .Select(parameter => $"{parameter.Key}={parameter.Value}");
+
+        var parameterString = string.Join('&', encodedParameters);
+
+        var signatureBaseString = string.Join(
+            '&',
+            method,
+            WebUtility.UrlEncode(GetBaseUrl(url)),
+            WebUtility.UrlEncode(parameterString));
+
+        var signatureBaseBytes = Encoding.UTF8.GetBytes(signatureBaseString);
+
+        var signingKey = string.Join('&', _config.APIKeySecret, oauthTokenSecret);
+        var signingKeyBytes = Encoding.UTF8.GetBytes(signingKey);
+
+        using (var hmac = new HMACSHA1 { Key = signingKeyBytes })
+        {
+            var signatureBytes = hmac.ComputeHash(signatureBaseBytes);
+
+            return Convert.ToBase64String(signatureBytes);
+        }
+    }
+
+    private async Task<OAuth1aRequestToken> GetRequestTokenAsync()
+    {
+        var tokenData = OAuth1aTokenData.New();
+
+        var parameters = new Dictionary<string, string>
+        {
+            ["oauth_callback"] = _config.CallbackUri,
+        };
+
+        var request = CreateRequest(
+            HttpMethod.Post, OAuth1aRequestTokenUrl,
+            parameters, tokenData);
 
         using (var client = new HttpClient())
         {
-            client.DefaultRequestHeaders.Authorization = header;
-
-            var response = await client.PostAsync(OAuth1aRequestTokenUrl, null);
+            var response = await client.SendAsync(request);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -136,39 +227,6 @@ public class OAuth1aService
         }
     }
 
-    private string Sign(
-        string method, string url,
-        IEnumerable<KeyValuePair<string, string>> parameters,
-        string oauthTokenSecret = "")
-    {
-        var encodedParameters = parameters
-            .Select(parameter => new KeyValuePair<string, string>(
-                WebUtility.UrlEncode(parameter.Key),
-                WebUtility.UrlEncode(parameter.Value)))
-            .OrderBy(parameter => parameter.Key)
-            .Select(parameter => $"{parameter.Key}={parameter.Value}");
-
-        var parameterString = string.Join('&', encodedParameters);
-
-        var signatureBaseString = string.Join(
-            '&',
-            method,
-            WebUtility.UrlEncode(url),
-            WebUtility.UrlEncode(parameterString));
-
-        var signatureBaseBytes = Encoding.UTF8.GetBytes(signatureBaseString);
-
-        var signingKey = string.Join('&', _config.APIKeySecret, oauthTokenSecret);
-        var signingKeyBytes = Encoding.UTF8.GetBytes(signingKey);
-
-        using (var hmac = new HMACSHA1 { Key = signingKeyBytes })
-        {
-            var signatureBytes = hmac.ComputeHash(signatureBaseBytes);
-
-            return Convert.ToBase64String(signatureBytes);
-        }
-    }
-
     private AuthenticationHeaderValue CreateAuthorizationHeader(
         IEnumerable<KeyValuePair<string, string>> parameters)
     {
@@ -177,4 +235,7 @@ public class OAuth1aService
         var oauthAuthorization = string.Join(", ", encodedParameters);
         return new AuthenticationHeaderValue("OAuth", oauthAuthorization);
     }
+
+    private string GetBaseUrl(string urlWithQueryString)
+        => urlWithQueryString.Split('?', 2)[0];
 }
