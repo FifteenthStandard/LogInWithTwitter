@@ -131,6 +131,68 @@ The [OAuth 2.0 Authorization Code Flow with PKCE][2acf] grants access _ONLY_ to
 the v2 API. If you need access to the Standard v1.1 or Premium v1.1 API, please
 use the OAuth 1.0a authentication flow mentioned above.
 
+On every run through this flow, if the user is not logged in to Twitter they
+will first be presented with the below generic looking Twitter login screen.
+
+![OAuth 2 Authorization Code flow screen - Logged Out](/OAuth-2-Authorization-Code-flow-logged-out.png "OAuth 2 Authorization Code flow screen - Logged Out")
+
+After logging in, or if they were already logged in, they will then be
+presented with the following screen prompting them to authorize your app.
+
+![OAuth 2 Authorization Code flow screen - Logged In](/OAuth-2-Authorization-Code-flow-logged-in.png "OAuth 2 Authorization Code flow screen - Logged In")
+
+Note that all runs through this flow, not just the first, will present this
+authorization screen. This is because this flow is intended for authorization,
+not for authentication, and should only need to be used once. See Notice 2
+above. Because of this, if you are intending to use this flow for user
+authentication, you might want to consider using `localStorage` or something
+equally long-term on the client-side to keep a record of the logged in user to
+avoid repeated prompts for authorization. Alternatively, you might want to
+consider other (purpose-built) authentication methods first, and only run the
+user through the authorization flow during account creation.
+
+The OAuth 2.0 Authorization Code flow with PKCE contains two steps:
+
+1. Server redirects browser to https://twitter.com/i/oauth2/authorize with a
+    particular `state` and `code_challenge` (and a few other parameters)
+    1. User authenticates with Twitter
+    2. User authorizes your application
+    3. Twitter redirects browser to your application's callback URI providing
+        state and a code
+2. Server makes `POST` request to https://api.twitter.com/2/oauth2/token with
+    provided code and challenge verifier to exchange code for access token
+
+This flow can be implemented using the `OAuth2Service` class. This class is
+configured via an `OAuth2Config` instance, which contains the following
+properties:
+
+* `ClientId`: Your app's OAuth Client ID, available under the OAuth 2.0 Client
+    ID and Client Secret header on the _Keys and tokens_ page for your app in
+    the Developer Portal.
+* `ClientSecret`: Your app's OAuth Client Secret, available under the OAuth 2.0
+    Client ID and Client Secret header on the _Keys and tokens_ page for your
+    app in the Developer Portal.
+* `CallbackUri`: A URI in your application where users should be redirected
+    after completing the OAuth flow. Must be configured in the
+    _User authentication settings_ section of the _Settings_ page for your app
+    in the Developer Portal. Typically this page is defined as `/auth` or a
+    similar dedicated page to handle the logic of capturing the provided query
+    parameters and finalising the flow, before then redirecting back to a more
+    appropriate landing page.
+
+The `GetLogInRedirectUrl` method returns the URL which your server should
+redirect your user to to start the authorization flow for Step 1. After your
+user authorizes Twitter and is redirected back to your Callback URI, use the
+`GetAccessTokenAsync` method to perform Step 2, using the received `state` to
+match the request to the challenge created in Step 1 and then converting the
+received `code` into an access token.
+
+The access token can then be used as a Bearer token when calling the Twitter
+API (v2 only) on behalf of the user. See
+[OAuth 2.0  Making requests on behalf of users][v2-authorizing] for more
+details.
+
+
 [1af]: https://developer.twitter.com/en/docs/authentication/oauth-1-0a/obtaining-user-access-tokens
 [2acf]: https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code
 [api]: https://developer.twitter.com/en/docs/twitter-api

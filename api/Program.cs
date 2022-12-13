@@ -14,6 +14,11 @@ if (oauth1aConfig == null) throw new Exception("OAuth1aConfig missing");
 builder.Services.AddSingleton(oauth1aConfig);
 builder.Services.AddSingleton<OAuth1aService>();
 
+var oauth2Config = builder.Configuration.GetSection("OAuth2Config").Get<OAuth2Config>();
+if (oauth2Config == null) throw new Exception("OAuth2Config missing");
+builder.Services.AddSingleton(oauth2Config);
+builder.Services.AddSingleton<OAuth2Service>();
+
 var app = builder.Build();
 
 // Configure the HTTP request pipeline.
