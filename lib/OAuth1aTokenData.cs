@@ -2,8 +2,8 @@ namespace FifteenthStandard.LogInWithTwitter;
 
 public class OAuth1aTokenData
 {
-    public required string Nonce { get; init; }
-    public required string Timestamp { get; init; }
+    public string Nonce { get; init; } = "";
+    public string Timestamp { get; init; } = "";
 
     public static OAuth1aTokenData New()
         => new OAuth1aTokenData
