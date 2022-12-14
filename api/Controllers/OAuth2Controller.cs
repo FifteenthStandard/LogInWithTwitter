@@ -1,5 +1,7 @@
 using Microsoft.AspNetCore.Mvc;
 
+using FifteenthStandard.Storage;
+
 namespace FifteenthStandard.LogInWithTwitter.Api;
 
 [ApiController]
@@ -7,16 +9,25 @@ namespace FifteenthStandard.LogInWithTwitter.Api;
 public class OAuth2Controller : ControllerBase
 {
     private readonly OAuth2Service _service;
+    private readonly IKeyValueStore _store;
 
-    public OAuth2Controller(OAuth2Service service)
+    public OAuth2Controller(
+        OAuth2Service service,
+        IKeyValueStore store)
     {
         _service = service;
+        _store = store;
     }
 
     [HttpGet("authorize")]
-    public IActionResult Authorize()
+    public async Task<IActionResult> Authorize()
     {
-        var redirectUrl = _service.GetLogInRedirectUrl();
+        var state = _service.CreateState();
+        var verifier = _service.CreateChallengeVerifier();
+
+        await _store.PutAsync("OAuth2", state, verifier);
+
+        var redirectUrl = _service.GetLogInRedirectUrl(state, verifier);
         return Redirect(redirectUrl);
     }
 
@@ -25,7 +36,9 @@ public class OAuth2Controller : ControllerBase
         [FromQuery] string state,
         [FromQuery] string code)
     {
-        var token = await _service.GetAccessTokenAsync(state, code);
+        var verifier = await _store.GetAsync<string>("OAuth2", state);
+        if (verifier == null) return BadRequest("Unknown state");
+        var token = await _service.GetAccessTokenAsync(state, code, verifier);
         return Ok(token);
     }
 
@@ -34,6 +47,6 @@ public class OAuth2Controller : ControllerBase
     {
         var bearerToken = Request.Headers.Authorization.Single() ?? "";
         var user = await _service.GetUserAsync(bearerToken);
-        return Ok();
+        return Ok(user);
     }
 }

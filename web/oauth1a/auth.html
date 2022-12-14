@@ -1,0 +1,11 @@
+<html>
+<head>
+  <script src="../../LogInWithTwitter.js"></script>
+  <script>
+    window.addEventListener('load', async function () {
+      const authClient = new OAuth1aClient('http://localhost:5224');
+      await authClient.completeAuthentication('/kyou');
+    });
+  </script>
+</head>
+</html>

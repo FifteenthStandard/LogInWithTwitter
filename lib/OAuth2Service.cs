@@ -13,22 +13,15 @@ public class OAuth2Service
     private const string Apiv2UsersMeUrl = "https://api.twitter.com/2/users/me";
 
     private readonly OAuth2Config _config;
-    private readonly IDictionary<string, string> _stateCache;
 
     public OAuth2Service(OAuth2Config config)
     {
         _config = config;
-        _stateCache = new Dictionary<string, string>();
     }
 
-    public string GetLogInRedirectUrl()
+    public string GetLogInRedirectUrl(string state, string challengeVerifierString)
     {
-        var state = CreateState();
-
-        var challengeVerifierString = CreateChallengeVerifier();
         var challengeVerifierBytes = Encoding.UTF8.GetBytes(challengeVerifierString);
-
-        _stateCache[state] = challengeVerifierString;
 
         string challengeString;
         using (var hash = SHA256.Create())
@@ -54,13 +47,8 @@ public class OAuth2Service
         return $"{OAuth2AuthorizeUrl}?{queryString}";
     }
 
-    public async Task<OAuth2AccessToken> GetAccessTokenAsync(string state, string code)
+    public async Task<OAuth2AccessToken> GetAccessTokenAsync(string state, string code, string challengeVerifierString)
     {
-        if (!_stateCache.TryGetValue(state, out var challengeVerifierString))
-        {
-            throw new ArgumentException($"Unknown state '{state}'");
-        }
-
         var body = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             ["code"] = code,
@@ -126,9 +114,9 @@ public class OAuth2Service
         }
     }
 
-    private string CreateState()
+    public string CreateState()
         => new Random().NextInt64().ToString("X16");
 
-    private string CreateChallengeVerifier()
+    public string CreateChallengeVerifier()
         => $"{CreateState()}{CreateState()}{CreateState()}{CreateState()}";
 }

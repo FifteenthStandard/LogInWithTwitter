@@ -14,40 +14,70 @@ public class OAuth1aService
     private const string Apiv2UsersMeUrl = "https://api.twitter.com/2/users/me";
 
     private readonly OAuth1aConfig _config;
-    private readonly IDictionary<string, OAuth1aTokenData> _dataCache;
 
     public OAuth1aService(OAuth1aConfig config)
     {
         _config = config;
-        _dataCache = new Dictionary<string, OAuth1aTokenData>();
     }
 
-    public async Task<string> GetLogInRedirectUrlAsync()
+    public async Task<OAuth1aRequestToken> GetRequestTokenAsync(OAuth1aTokenData tokenData)
     {
-        var token = await GetRequestTokenAsync();
-        return $"{OAuth1aAuthenticateUrl}?oauth_token={token.OAuthToken}";
-    }
-
-    public async Task<OAuth1aAccessToken> GetAccessTokenAsync(string oauthToken, string oauthVerifier)
-    {
-        if (!_dataCache.TryGetValue(oauthToken, out var tokenData))
-        {
-            throw new ArgumentException($"Unknown OAuth token '{oauthToken}'");
-        }
-
         var parameters = new Dictionary<string, string>
         {
-            ["oauth_token"] = oauthToken,
+            ["oauth_callback"] = _config.CallbackUri,
         };
 
         var request = CreateRequest(
-            HttpMethod.Post, OAuth1aAccessTokenUrl,
+            HttpMethod.Post, OAuth1aRequestTokenUrl,
             parameters, tokenData);
+
+        using (var client = new HttpClient())
+        {
+            var response = await client.SendAsync(request);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new Exception($"{(int) response.StatusCode} {response.ReasonPhrase}");
+            }
+
+            var content = await response.Content.ReadAsStringAsync();
+            var responseValues = content
+                .Split('&')
+                .Select(part => part.Split('=', 2))
+                .ToDictionary(part => part[0], part => part[1]);
+
+            var requestToken = new OAuth1aRequestToken
+            {
+                OAuthToken = responseValues["oauth_token"],
+                OAuthTokenSecret = responseValues["oauth_token_secret"],
+                OAuthCallbackConfirmed = bool.Parse(responseValues["oauth_callback_confirmed"]),
+            };
+
+            if (!requestToken.OAuthCallbackConfirmed)
+            {
+                throw new Exception("oauth_callback_confirmed not true");
+            }
+
+            return requestToken;
+        }
+    }
+
+    public string GetLogInRedirectUrl(OAuth1aRequestToken requestToken)
+        => $"{OAuth1aAuthenticateUrl}?oauth_token={requestToken.OAuthToken}";
+
+    public async Task<OAuth1aAccessToken> GetAccessTokenAsync(
+        string oauthToken, string oauthTokenSecret, string oauthVerifier,
+        OAuth1aTokenData tokenData)
+    {
+        var request = CreateRequest(
+            HttpMethod.Post, OAuth1aAccessTokenUrl,
+            Enumerable.Empty<KeyValuePair<string, string>>(), tokenData,
+            oauthToken, oauthTokenSecret);
+
         request.Content = new FormUrlEncodedContent(new Dictionary<string, string>
             {
                 ["oauth_verifier"] = oauthVerifier,
             });
-
 
         using (var client = new HttpClient())
         {
@@ -183,47 +213,6 @@ public class OAuth1aService
             var signatureBytes = hmac.ComputeHash(signatureBaseBytes);
 
             return Convert.ToBase64String(signatureBytes);
-        }
-    }
-
-    private async Task<OAuth1aRequestToken> GetRequestTokenAsync()
-    {
-        var tokenData = OAuth1aTokenData.New();
-
-        var parameters = new Dictionary<string, string>
-        {
-            ["oauth_callback"] = _config.CallbackUri,
-        };
-
-        var request = CreateRequest(
-            HttpMethod.Post, OAuth1aRequestTokenUrl,
-            parameters, tokenData);
-
-        using (var client = new HttpClient())
-        {
-            var response = await client.SendAsync(request);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                throw new Exception($"{(int) response.StatusCode} {response.ReasonPhrase}");
-            }
-
-            var content = await response.Content.ReadAsStringAsync();
-            var responseValues = content
-                .Split('&')
-                .Select(part => part.Split('=', 2))
-                .ToDictionary(part => part[0], part => part[1]);
-
-            var requestToken = new OAuth1aRequestToken
-            {
-                OAuthToken = responseValues["oauth_token"],
-                OAuthTokenSecret = responseValues["oauth_token_secret"],
-                OAuthCallbackConfirmed = bool.Parse(responseValues["oauth_callback_confirmed"]),
-            };
-
-            _dataCache[requestToken.OAuthToken] = tokenData;
-
-            return requestToken;
         }
     }
 

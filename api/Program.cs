@@ -1,4 +1,5 @@
 using FifteenthStandard.LogInWithTwitter;
+using FifteenthStandard.Storage;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -9,15 +10,17 @@ builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
+builder.Services.AddSingleton<IKeyValueStore, InMemoryKeyValueStore>();
+
 var oauth1aConfig = builder.Configuration.GetSection("OAuth1aConfig").Get<OAuth1aConfig>();
 if (oauth1aConfig == null) throw new Exception("OAuth1aConfig missing");
 builder.Services.AddSingleton(oauth1aConfig);
-builder.Services.AddSingleton<OAuth1aService>();
+builder.Services.AddScoped<OAuth1aService>();
 
 var oauth2Config = builder.Configuration.GetSection("OAuth2Config").Get<OAuth2Config>();
 if (oauth2Config == null) throw new Exception("OAuth2Config missing");
 builder.Services.AddSingleton(oauth2Config);
-builder.Services.AddSingleton<OAuth2Service>();
+builder.Services.AddScoped<OAuth2Service>();
 
 var app = builder.Build();
 

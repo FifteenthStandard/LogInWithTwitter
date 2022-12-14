@@ -30,10 +30,10 @@ authentication provider.
 
 I am not a security specialist, an identity specialist, an authentication
 specialist or an authorization specialist. Please check the source code before
-relying on this library for production applications, particularly the creation
-of the `oauth_nonce` in the OAuth 1.0a authentication flow and the creation of
-the `state` and `code_verifier` in the OAuth 2.0 Authorization Code Flow with
-PKCE.
+relying on this library for production applications. I have provided code that
+can be used to generate `oauth_nonce` for the OAuth 1.0a authentication flow
+and `state` and `code_verifier` for the OAuth 2.0 Authorization Code Flow with
+PKCE, but you are more than welcome to generate your own values.
 
 I welcome contributions from those more knowledgeable than me to these areas
 in particular.
@@ -111,11 +111,26 @@ properties:
     parameters and finalising the flow, before then redirecting back to a more
     appropriate landing page.
 
-The `GetLogInRedirectUrlAsync` method performs Step 1 and returns the URL which
-your server should redirect your user to to start the authentication flow.
+The `GetRequestTokenAsync` method performs Step 1 and returns a request token.
+You can either use the `OAuth1aTokenData.New()` method to generate a nonce, or
+provide your own if you would prefer. You should consider storing the request
+token, indexed by its `OAuthToken` value, to help verify the `oauth_token`
+provided by the client in Step 3.
+
+The `GetLogInRedirect` method takes the access token above and returns the URL
+which your server should redirect your user to for Step 2.
+
 After your user authorizes Twitter and is redirected back to your Callback URI,
-use the `GetAccessTokenAsync` method to perform Step 3, converting the received
-`oauth_token` and `oauth_verifier` values into an access token.
+your server will be supplied with `oauth_token` and `oauth_verifier` values.
+Use the `GetAccessTokenAsync` method to perform Step 3, converting the received
+`oauth_token` and `oauth_verifier` values into an access token. The
+`oauth_token` value will match the `OAuthToken` value from Step 1, so you can
+use it to retrieve the full access token and get the `OAuthTokenSecret`.
+Strangely enough, the Twitter implementation of this flow departs from the
+standard and does not require the OAuthTokenSecret to be used when signing the
+request for an access token, so you can skip storing the request token and
+instead supply an empty string as the `OAuthTokenSecret` and the flow will
+still work.
 
 The access token contains an `OAuthToken` and `OAuthTokenSecret`, which can be
 used to call the Twitter API (both v1.1 and v2) on behalf of the user. When
@@ -180,18 +195,22 @@ properties:
     parameters and finalising the flow, before then redirecting back to a more
     appropriate landing page.
 
+You can use the `CreateState` and `CreateChallengeVerifier` methods to create
+the `state` and `code_verifier` values required for this flow, or you are free
+to generate your own values if you prefer. Either way, you will need to store
+the `code_verifier` value between calls, using the `state` as the index for
+retrieval.
+
 The `GetLogInRedirectUrl` method returns the URL which your server should
-redirect your user to to start the authorization flow for Step 1. After your
-user authorizes Twitter and is redirected back to your Callback URI, use the
-`GetAccessTokenAsync` method to perform Step 2, using the received `state` to
-match the request to the challenge created in Step 1 and then converting the
-received `code` into an access token.
+redirect your user to to start the authorization flow for Step 1.
+
+After your user authorizes Twitter and is redirected back to your Callback URI,
+use the `GetAccessTokenAsync` method to perform Step 2, using the received `state` to match the request to the challenge created in Step 1 and then converting the received `code` into an access token.
 
 The access token can then be used as a Bearer token when calling the Twitter
 API (v2 only) on behalf of the user. See
 [OAuth 2.0  Making requests on behalf of users][v2-authorizing] for more
 details.
-
 
 [1af]: https://developer.twitter.com/en/docs/authentication/oauth-1-0a/obtaining-user-access-tokens
 [2acf]: https://developer.twitter.com/en/docs/authentication/oauth-2-0/authorization-code

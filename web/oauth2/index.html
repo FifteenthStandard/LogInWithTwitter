@@ -1,0 +1,18 @@
+<html>
+<head>
+  <script src="../LogInWithTwitter.js"></script>
+  <script>
+    window.addEventListener('load', function () {
+      const authClient = new OAuth2Client('http://localhost:5224');
+      const user = authClient.assertAuthenticated();
+      if (user) {
+        document.getElementById('name').innerText = user.name;
+      }
+    });
+  </script>
+</head>
+
+<body>
+  Hello, <span id="name">world</span>!
+</body>
+</html>
